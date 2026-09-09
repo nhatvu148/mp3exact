@@ -1,6 +1,15 @@
 # mp3cut
 
-Cuts MP3 files at start/end timestamps that are actually exact, without re-encoding. Built because mp3cut.net and similar tools drift — the output is not the audio you selected.
+Sample-exact MP3 tools that do not re-encode and do not drift. Built because mp3cut.net and similar tools drift — the output is not the audio you selected.
+
+| tool | what it does |
+| --- | --- |
+| `mp3cut` | cut one or more exact ranges out of a file |
+| `mp3split` | split a mix into tagged tracks from a pasted tracklist |
+| `mp3join` | join files back together, trimming as much padding as MP3 allows |
+| `mp3info` | inspect frames, gapless metadata and structural integrity |
+
+All four share one engine, `mp3frames.py`, which parses every MPEG frame directly.
 
 ## Why other cutters drift
 
@@ -30,7 +39,7 @@ task --list          # see everything
 task install         # optional: install `mp3cut` as a global CLI
 ```
 
-## Usage
+## mp3cut — exact ranges
 
 ```
 task cut -- input.mp3 -c 1:20-2:45 -o out.mp3
@@ -43,6 +52,41 @@ task cut -- mix.mp3 -c 0:00-3:47.512 -c 3:47.512-8:11.003 -d tracks/
 ```
 
 Everything after `--` goes straight to the tool, so `uv run mp3cut.py <args>` is equivalent, as is `mp3cut <args>` once installed.
+
+## mp3split — a mix into tagged tracks
+
+Paste the tracklist out of a YouTube description into a file and point at it:
+
+```
+task split -- mix.mp3 -t list.txt -d tracks/ --album "Midnight Memories"
+```
+
+Lines are matched on whatever timestamp they contain, so the usual mess all parses: `00:00 Artist - Title`, `1. 03:47.512 Title`, `[08:11] Artist — Title`, `0:15:02 Title`. Track numbering, bullets and brackets are stripped, lines without a timestamp are ignored, and `Artist - Title` is split on `-`, `–`, `—` or `~`. Each track runs to the next one's start, the last runs to the end of the mix.
+
+Every track gets its own ID3v2.3 tag — title, artist, album, album artist, track number, optional year and genre — written in UTF-16 so CJK and Vietnamese titles survive. Filenames are sanitized for macOS, Linux and Windows. Use `-n` to preview the split before writing anything, and `-t -` to read the tracklist from standard input.
+
+## mp3join — put them back together
+
+```
+task join -- 01.mp3 02.mp3 03.mp3 -o whole.mp3
+```
+
+Inputs must share a sample rate, channel mode and MPEG version; mismatches are refused rather than silently producing a broken file.
+
+**This is not gapless, and cannot be.** A single MP3 carries only one encoder delay / padding pair, in its Xing header, so only the very start and the very end of the result can be trimmed to the sample. At each interior seam the best available without re-encoding is to drop whole frames, which leaves under two frames — measured at exactly one frame, 24 ms, when joining files this toolkit produced. The tool prints the real cost of every seam rather than hiding it.
+
+That still beats `cat` or mp3wrap, which keep the full priming silence at every seam and leave a duration no player computes correctly. If you need a truly seamless join, the seam has to be re-encoded.
+
+One deliberate trade-off: after a seam the first frame may decode from a short bit reservoir. Carrying the reservoir frames instead would re-introduce ~87 ms of duplicated audio at every join, which is far more audible than the alternative.
+
+## mp3info — what is actually in the file
+
+```
+task info -- suspect.mp3
+task info -- suspect.mp3 --frames 20
+```
+
+Reports format, VBR/CBR and average bitrate, frame count, decoded versus gapless-trimmed duration, the delay and padding values a player will act on, and structural problems: a Xing frame count that disagrees with reality, resync gaps, unexpected trailing data, padding below the decoder delay. The useful move is pointing it at some *other* tool's output to see where that tool went wrong.
 
 Timestamps accept `83`, `83.5`, `1:23.5`, `01:02:03.456`, or `#<sample number>` for exact sample positions.
 
@@ -60,7 +104,7 @@ task verify -- source.mp3 cut.mp3 --start 1:20 --end 2:45
 
 Ground truth is the source decoded from sample 0 and trimmed with ffmpeg's `atrim`. That detail matters: ffmpeg's own `-ss` seek begins decoding with a cold bit reservoir, so seek-based extraction is itself slightly wrong near the cut point and makes a poor reference. Measured against `-ss`, a correct cut looks like it has a 0.13% error; measured against a warm decode, it is bit-identical.
 
-`task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut. Current result: 46 bit-exact, 10 exact-in-time, 0 failures across 56 cases.
+`task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut, followed by split, join and info checks. Current result: 56 cut cases (46 bit-exact, 10 exact-in-time), split verified per track plus tag read-back, join within two frames per seam, info clean on all 8 fixtures — 0 failures.
 
 ## Known limitation
 

@@ -37,5 +37,58 @@ for f in cbr320 cbr441 vbr441 vbrlow cbr40 mono32 mpeg2_24k noxing; do
   done
 done
 rm -f "$FX/_out.mp3"
-echo "bit-exact=$exact  exact-with-warmup=$warm  fail=$fail  (total $((exact+warm+fail)))"
-[ "$fail" -eq 0 ]
+echo "cut:   bit-exact=$exact  exact-with-warmup=$warm  fail=$fail  (total $((exact+warm+fail)))"
+
+# ---------------------------------------------------------------- mp3split
+printf '00:00 Alpha - One\n0:08 Beta - Two\n[0:19.5] Gamma - Three\n' > "$FX/_list.txt"
+rm -rf "$FX/_tracks"
+uv run mp3split.py "$FX/cbr441.mp3" -t "$FX/_list.txt" -d "$FX/_tracks" -q >/dev/null 2>&1
+sfail=0; sok=0
+i=1
+for range in "0 8" "8 19.5" "19.5 30"; do
+  set -- $range
+  f=$(ls "$FX/_tracks/0$i - "*.mp3 2>/dev/null | head -1)
+  if [ -z "$f" ]; then sfail=$((sfail+1)); echo "SPLIT missing track $i"; i=$((i+1)); continue; fi
+  res=$(uv run verify.py "$FX/cbr441.mp3" "$f" --start "$1" --end "$2" 2>/dev/null | tail -1)
+  case "$res" in PASS*) sok=$((sok+1));; *) sfail=$((sfail+1)); echo "SPLIT track $i: $res";; esac
+  i=$((i+1))
+done
+# The tag must survive the round trip.
+t=$(ffprobe -v error -show_entries format_tags=title -of default=nk=1:nw=1 "$FX/_tracks/02 - Beta - Two.mp3" 2>/dev/null)
+if [ "$t" = "Two" ]; then sok=$((sok+1)); else sfail=$((sfail+1)); echo "SPLIT tag readback got '$t', wanted 'Two'"; fi
+echo "split: ok=$sok fail=$sfail"
+
+# ---------------------------------------------------------------- mp3join
+for r in "2-7" "7-12" "12-17"; do
+  uv run mp3cut.py "$FX/cbr441.mp3" -c "$r" -o "$FX/_j${r%%-*}.mp3" -q >/dev/null 2>&1
+done
+uv run mp3join.py "$FX/_j2.mp3" "$FX/_j7.mp3" "$FX/_j12.mp3" -o "$FX/_joined.mp3" -q >/dev/null 2>&1
+# 15 s of audio, plus at most two frames of seam silence per join.
+jfail=$(uv run python3 -c "
+import subprocess, sys
+out = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration',
+                      '-of','default=nk=1:nw=1','$FX/_joined.mp3'],
+                     capture_output=True, text=True).stdout.strip()
+got = float(out) * 44100
+want, frame = 15 * 44100, 1152
+slack = 4 * frame
+print(0 if want <= got <= want + slack else 1)
+sys.stderr.write('joined %.0f samples, wanted %d..%d\n' % (got, want, want + slack))
+" 2>/dev/null)
+if [ "$jfail" = "0" ]; then echo "join:  ok (seams within two frames each)"; else echo "join:  FAIL length out of range"; fi
+
+# ---------------------------------------------------------------- mp3info
+ifail=0
+for f in cbr320 cbr441 vbr441 vbrlow cbr40 mono32 mpeg2_24k noxing; do
+  if ! uv run mp3info.py "$FX/$f.mp3" 2>/dev/null | grep -q "problems  : none found"; then
+    ifail=$((ifail+1)); echo "INFO $f reported problems"
+  fi
+done
+echo "info:  ok=$((8-ifail)) fail=$ifail"
+
+rm -rf "$FX/_tracks" "$FX/_list.txt" "$FX/_j"*.mp3 "$FX/_joined.mp3"
+total=$((fail + sfail + ifail))
+[ "$jfail" = "0" ] || total=$((total+1))
+echo
+echo "TOTAL FAILURES: $total"
+[ "$total" -eq 0 ]

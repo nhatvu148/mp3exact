@@ -19,6 +19,18 @@ tasks:
     desc: 'Cut an MP3 — task cut -- in.mp3 -c 1:20-2:45 -o out.mp3'
     cmds: ['uv run mp3cut.py {{.CLI_ARGS}}']
 
+  split:
+    desc: 'Split a mix by tracklist — task split -- mix.mp3 -t list.txt -d tracks/'
+    cmds: ['uv run mp3split.py {{.CLI_ARGS}}']
+
+  join:
+    desc: 'Join files — task join -- 01.mp3 02.mp3 -o whole.mp3'
+    cmds: ['uv run mp3join.py {{.CLI_ARGS}}']
+
+  info:
+    desc: 'Inspect frames, gapless values and integrity — task info -- file.mp3'
+    cmds: ['uv run mp3info.py {{.CLI_ARGS}}']
+
   verify:
     desc: 'Measure drift — task verify -- src.mp3 cut.mp3 --start 1:20 --end 2:45'
     cmds: ['uv run verify.py {{.CLI_ARGS}}']
