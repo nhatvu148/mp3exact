@@ -1,4 +1,4 @@
-# mp3cut
+# mp3exact
 
 Sample-exact MP3 tools that do not re-encode and do not drift. Built because mp3cut.net and similar tools drift — the output is not the audio you selected.
 

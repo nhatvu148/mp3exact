@@ -1,8 +1,10 @@
 [project]
-name = "mp3cut"
+name = "mp3exact"
 version = "0.1.0"
 description = "Sample-exact MP3 tools — cut, split, join and inspect without re-encoding or drifting"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 # The cutter is deliberately dependency-free: it parses MPEG frames directly.
 dependencies = []
