@@ -1,8 +1,8 @@
 name: test
 
+# Every push, on any branch - a branch with no PR yet still gets checked.
 on:
   push:
-    branches: [main]
   pull_request:
 
 # A newer push to the same branch makes the older run irrelevant.
@@ -12,6 +12,12 @@ concurrency:
 
 jobs:
   test:
+    # A PR whose head lives in this repo is already covered by its push run, so
+    # only fork PRs need the pull_request event - their pushes never land here.
+    # Without this, every PR branch would build twice for the same commit.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

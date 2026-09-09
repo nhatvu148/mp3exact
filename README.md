@@ -108,7 +108,7 @@ task verify -- source.mp3 cut.mp3 --start 1:20 --end 2:45
 
 Ground truth is the source decoded from sample 0 and trimmed with ffmpeg's `atrim`. That detail matters: ffmpeg's own `-ss` seek begins decoding with a cold bit reservoir, so seek-based extraction is itself slightly wrong near the cut point and makes a poor reference. Measured against `-ss`, a correct cut looks like it has a 0.13% error; measured against a warm decode, it is bit-identical.
 
-CI runs `task lint` and `task test` on every push and pull request, so the numbers below are re-derived on a clean machine rather than taken on trust. `task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut, followed by split, join and info checks. Current result: 56 cut cases (46 bit-exact, 10 exact-in-time), split verified per track plus tag read-back, join within two frames per seam, info clean on all 8 fixtures — 0 failures.
+CI runs `task lint` and `task test` on every push, and on pull requests from forks, so the numbers below are re-derived on a clean machine rather than taken on trust. `task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut, followed by split, join and info checks. Current result: 56 cut cases (46 bit-exact, 10 exact-in-time), split verified per track plus tag read-back, join within two frames per seam, info clean on all 8 fixtures — 0 failures.
 
 ## Known limitation
 
