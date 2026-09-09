@@ -49,14 +49,14 @@ tasks:
   check:
     desc: Lint and format the Python, fixing what it can
     cmds:
-      - uvx ruff check --fix
-      - uvx ruff format
+      - uv run ruff check --fix
+      - uv run ruff format
 
   lint:
     desc: Check lints and formatting without touching files (this is what CI runs)
     cmds:
-      - uvx ruff check .
-      - uvx ruff format --check .
+      - uv run ruff check .
+      - uv run ruff format --check .
 
   install:
     desc: Install `mp3cut` as a global CLI tool

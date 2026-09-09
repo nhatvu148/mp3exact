@@ -121,9 +121,11 @@ def main(argv=None):
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args(argv)
 
-    text = (
-        sys.stdin.read() if args.tracklist == "-" else open(args.tracklist, encoding="utf-8").read()
-    )
+    if args.tracklist == "-":
+        text = sys.stdin.read()
+    else:
+        with open(args.tracklist, encoding="utf-8") as fh:
+            text = fh.read()
     entries, skipped = parse_tracklist(text)
     if not entries:
         sys.exit("mp3split: no timestamps found in the tracklist")

@@ -17,7 +17,7 @@ mp3info = "mp3info:main"
 
 [dependency-groups]
 # Only the verifier needs numpy, for the FFT cross-correlation.
-dev = ["numpy>=1.24"]
+dev = ["numpy>=1.24", "ruff==0.16.6"]
 
 [build-system]
 requires = ["hatchling"]
@@ -28,3 +28,10 @@ only-include = ["mp3frames.py", "id3.py", "mp3cut.py", "mp3split.py", "mp3join.p
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Stated explicitly on purpose. Leaving this implicit meant the rule set was
+# whatever the installed ruff defaulted to, so a cached 0.9 passed locally
+# while 0.16 failed in CI on rules that had since been added to the default.
+# UP031 (%-formatting) is deliberately absent: this codebase uses % throughout.
+select = ["E4", "E7", "E9", "F", "EXE", "SIM115"]
