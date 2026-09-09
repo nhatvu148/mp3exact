@@ -1,0 +1,47 @@
+name: test
+
+# Every push, on any branch - a branch with no PR yet still gets checked.
+on:
+  push:
+  pull_request:
+
+# A newer push to the same branch makes the older run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # A PR whose head lives in this repo is already covered by its push run, so
+    # only fork PRs need the pull_request event - their pushes never land here.
+    # Without this, every PR branch would build twice for the same commit.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The cutter itself is pure standard library, but the suite decodes and
+      # generates fixtures with ffmpeg, and verify.py needs numpy via uv.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Same runner as local, so `task test` means one thing in both places.
+      - name: Install Task
+        run: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
+      - name: Lint
+        run: task lint
+
+      # Generates its own fixtures (CBR/VBR, 320-32 kbps, mono, MPEG2, no-Xing)
+      # and runs the cut/split/join/order/reencode-failure/info matrix.
+      - name: Test
+        run: task test

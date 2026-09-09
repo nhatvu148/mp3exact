@@ -109,6 +109,25 @@ def main(argv=None):
     spf = hdr["spf"]
     sr = hdr["sample_rate"]
 
+    # The delay field is 12 bits, so it can hide at most MAX_GAPLESS +
+    # DECODER_DELAY samples of lead. If the first file's reservoir priming needs
+    # more than that, drop frames until it fits. Clamping the field instead -
+    # which is what this used to do - silently keeps audio that was meant to be
+    # hidden, making the join longer than the sum of its parts with no warning.
+    lead_warning = None
+    lead = parts[0]["head_extra"]
+    if lead - DECODER_DELAY > MAX_GAPLESS:
+        drop = (lead - DECODER_DELAY - MAX_GAPLESS + spf - 1) // spf
+        drop = min(drop, parts[0]["count"] - 1)
+        parts[0]["first"] += drop
+        parts[0]["count"] -= drop
+        parts[0]["head_extra"] = lead - drop * spf
+        lead_warning = (
+            "dropped %d priming frame(s) from %s to fit the 12-bit delay field; "
+            "the first ~%d ms may decode with a short bit-reservoir"
+            % (drop, os.path.basename(parts[0]["path"]), drop * spf * 1000 // sr)
+        )
+
     payload = bytearray()
     all_frames = []  # (offset in payload, size) for the TOC
     for p in parts:
@@ -121,12 +140,16 @@ def main(argv=None):
     n0 = parts[0]["head_extra"]
     n1 = out_total - parts[-1]["tail_extra"]
 
-    delay = n0 - DECODER_DELAY
+    delay = max(0, n0 - DECODER_DELAY)
     padding = parts[-1]["tail_extra"] + DECODER_DELAY
-    if delay < 0:
-        delay = 0
-    delay = min(delay, MAX_GAPLESS)
-    padding = max(0, min(padding, MAX_GAPLESS))
+    # Both must now fit without truncation; the lead was made to fit above, and
+    # tail_extra is under one frame by construction. If either still overflows
+    # the field, the output length would be wrong, so say so rather than lie.
+    if delay > MAX_GAPLESS or padding > MAX_GAPLESS:
+        raise Mp3Error(
+            "gapless fields overflow (delay %d, padding %d, max %d); "
+            "the join would not be sample-exact" % (delay, padding, MAX_GAPLESS)
+        )
 
     class _F:
         def __init__(self, off):
@@ -152,7 +175,10 @@ def main(argv=None):
                 fmt_samples(n1 - n0, sr),
             )
         )
-        print("        delay %d, padding %d\n" % (delay, padding))
+        print("        delay %d, padding %d" % (delay, padding))
+        if lead_warning:
+            print("        warning: %s" % lead_warning)
+        print()
         worst = 0
         for i, (a, b) in enumerate(zip(parts, parts[1:]), 1):
             gap = a["tail_extra"] + b["head_extra"]
@@ -177,4 +203,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Mp3Error as exc:
+        sys.exit("mp3join: %s" % exc)

@@ -1,5 +1,7 @@
 # mp3exact
 
+[![test](https://github.com/nhatvu148/mp3exact/actions/workflows/test.yml/badge.svg)](https://github.com/nhatvu148/mp3exact/actions/workflows/test.yml)
+
 Sample-exact MP3 tools that do not re-encode and do not drift. Built because mp3cut.net and similar tools drift — the output is not the audio you selected.
 
 | tool | what it does |
@@ -106,10 +108,12 @@ task verify -- source.mp3 cut.mp3 --start 1:20 --end 2:45
 
 Ground truth is the source decoded from sample 0 and trimmed with ffmpeg's `atrim`. That detail matters: ffmpeg's own `-ss` seek begins decoding with a cold bit reservoir, so seek-based extraction is itself slightly wrong near the cut point and makes a poor reference. Measured against `-ss`, a correct cut looks like it has a 0.13% error; measured against a warm decode, it is bit-identical.
 
-`task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut, followed by split, join and info checks. Current result: 56 cut cases (46 bit-exact, 10 exact-in-time), split verified per track plus tag read-back, join within two frames per seam, info clean on all 8 fixtures — 0 failures.
+CI runs `task lint` and `task test` on every push, and on pull requests from forks, so the numbers below are re-derived on a clean machine rather than taken on trust. `task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut, followed by split, join and info checks. Current result: 56 cut cases (46 bit-exact, 10 exact-in-time), split verified per track plus tag read-back, join within two frames per seam, info clean on all 8 fixtures — 0 failures.
 
 ## Known limitation
 
 The gapless delay field is 12 bits, so at most 4095 + 529 samples of priming can be hidden. At roughly 40 kbps and below, frames are small enough that satisfying the bit reservoir needs more lead than that. In those cases the tool drops the excess priming frames and warns.
+
+There is a second, narrower limit at the other extreme. A cut much shorter than one frame makes the gapless fields discard nearly the whole file — an 8-sample cut keeps 8 of 4608 decoded samples — and decoders disagree about honouring that. ffmpeg 9 returns the requested 8 samples; ffmpeg 6.1 returns 713. The header arithmetic is exact either way, and `test.sh` checks it directly on the header for that reason, but do not expect a sub-frame cut to play back identically everywhere. Anything from one frame upward (26 ms at 44.1 kHz) is fine on both.
 
 **Timing stays exact** when this happens — the length and both cut points are still sample-accurate. Only the first few tens of milliseconds decode from a short reservoir and may differ slightly from the source. Use `--mode reencode` if that matters. Above ~64 kbps this never triggers; every fixture at 96 kbps and up is bit-exact.
