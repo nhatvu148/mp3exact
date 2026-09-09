@@ -15,7 +15,7 @@ import re
 import sys
 
 from id3 import build_tag, safe_filename
-from mp3frames import Mp3Error, cut, fmt_samples, index_frames
+from mp3frames import Mp3Error, average_bitrate, cut, fmt_samples, index_frames, reencode
 
 # hh:mm:ss(.mmm) or mm:ss(.mmm), not glued to other digits.
 TIMESTAMP = re.compile(r"(?<!\d)(?:(\d{1,3}):)?(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?(?!\d)")
@@ -28,15 +28,30 @@ EDGE_JUNK = re.compile(r"^[\s\-–—:;,.*•|\[\]()]+|[\s\-–—:;,*•|\[\]()
 ARTIST_SPLIT = re.compile(r"\s+[-–—~]\s+")
 
 
+def fmt_hms(seconds):
+    h, rem = divmod(float(seconds), 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return "%d:%02d:%06.3f" % (int(h), int(m), sec)
+    return "%d:%06.3f" % (int(m), sec)
+
+
 def parse_tracklist(text):
-    """Yield (seconds, label) for every line that carries a timestamp."""
+    """Return (entries, skipped).
+
+    entries are (seconds, label, line_number) in the order they were written;
+    skipped are (line_number, text) for non-empty lines carrying no timestamp,
+    so a mistyped track cannot vanish without anyone noticing.
+    """
     out = []
-    for line in text.splitlines():
+    skipped = []
+    for lineno, line in enumerate(text.splitlines(), 1):
         line = line.strip()
         if not line:
             continue
         m = TIMESTAMP.search(line)
         if not m:
+            skipped.append((lineno, line))
             continue
         hours, minutes, seconds, millis = m.groups()
         total = int(minutes) * 60 + int(seconds)
@@ -49,8 +64,8 @@ def parse_tracklist(text):
         label = LEADING_NUMBER.sub("", label.strip())
         label = EDGE_JUNK.sub("", label)
         label = " ".join(label.split())
-        out.append((total, label))
-    return out
+        out.append((total, label, lineno))
+    return out, skipped
 
 
 def split_label(label, default_artist=None):
@@ -82,20 +97,63 @@ def main(argv=None):
     ap.add_argument(
         "-n", "--dry-run", action="store_true", help="show the split without writing files"
     )
+    ap.add_argument(
+        "--mode",
+        choices=("lossless", "reencode"),
+        default="lossless",
+        help="lossless keeps the original frames (default); reencode avoids the "
+        "bit-reservoir warm-up at a cut point, at one lossy generation",
+    )
+    ap.add_argument(
+        "--sort",
+        action="store_true",
+        help="accept a tracklist that is not in time order, and sort it",
+    )
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args(argv)
 
     text = (
         sys.stdin.read() if args.tracklist == "-" else open(args.tracklist, encoding="utf-8").read()
     )
-    entries = parse_tracklist(text)
+    entries, skipped = parse_tracklist(text)
     if not entries:
         sys.exit("mp3split: no timestamps found in the tracklist")
 
-    entries.sort(key=lambda e: e[0])
-    for (a, _), (b, _) in zip(entries, entries[1:]):
-        if a == b:
-            sys.exit("mp3split: two tracks start at the same time (%s)" % fmt_samples(a, 1))
+    # A tracklist is authored in play order, so a timestamp that goes backwards
+    # is a typo in the source, not a list that wants sorting. Sorting it
+    # silently would swap two tracks and hand back plausible-looking files.
+    problems = []
+    for (t0, l0, n0), (t1, l1, n1) in zip(entries, entries[1:]):
+        if t1 == t0:
+            problems.append(
+                "  line %d (%s) and line %d (%s) both start at %s"
+                % (n0, l0 or "?", n1, l1 or "?", fmt_hms(t0))
+            )
+        elif t1 < t0:
+            problems.append(
+                "  line %d (%s) starts at %s, before line %d (%s) at %s"
+                % (n1, l1 or "?", fmt_hms(t1), n0, l0 or "?", fmt_hms(t0))
+            )
+    if problems and not args.sort:
+        sys.exit(
+            "mp3split: tracklist is not in ascending time order:\n"
+            + "\n".join(problems)
+            + "\nFix the timestamp(s), or pass --sort to order by time anyway."
+        )
+    if args.sort:
+        entries.sort(key=lambda e: e[0])
+        for (t0, l0, n0), (t1, l1, n1) in zip(entries, entries[1:]):
+            if t0 == t1:
+                sys.exit(
+                    "mp3split: line %d (%s) and line %d (%s) both start at %s"
+                    % (n0, l0 or "?", n1, l1 or "?", fmt_hms(t0))
+                )
+
+    if skipped and not args.quiet:
+        print("skipped %d line(s) with no timestamp:" % len(skipped))
+        for lineno, line in skipped:
+            print("  line %d: %s" % (lineno, line[:70]))
+        print()
 
     with open(args.input, "rb") as fh:
         data = fh.read()
@@ -109,11 +167,12 @@ def main(argv=None):
         len(frames) * hdr["spf"] - (xing["delay"] if xing else 0) - (xing["padding"] if xing else 0)
     )
 
+    avg_kbps = average_bitrate(frames, hdr)
     stem = os.path.splitext(os.path.basename(args.input))[0]
     album = args.album or stem
 
     # Each track runs to the next one's start; the last runs to the end of the mix.
-    starts = [int(round(sec * sr)) for sec, _ in entries]
+    starts = [int(round(sec * sr)) for sec, _, _ in entries]
     bounds = starts[1:] + [music_len]
     if starts[0] >= music_len:
         sys.exit("mp3split: the first timestamp is past the end of the audio")
@@ -127,13 +186,16 @@ def main(argv=None):
 
     exit_code = 0
     written = 0
-    for i, ((_, label), start, end) in enumerate(zip(entries, starts, bounds), 1):
-        artist, title = split_label(label, args.artist)
+    for i, ((_, label, _), start, end) in enumerate(zip(entries, starts, bounds), 1):
+        artist, title = split_label(label)
         title = title or "Track %02d" % i
+        # Only an artist named on the line belongs in the filename; --artist is
+        # a tagging fallback, not evidence that the line carried an artist.
         name = "%02d - %s.mp3" % (
             i,
             safe_filename("%s - %s" % (artist, title) if artist else title),
         )
+        tag_artist = artist or args.artist
         dst = os.path.join(args.outdir, name)
 
         if end > music_len:
@@ -152,6 +214,31 @@ def main(argv=None):
         if args.dry_run:
             continue
 
+        tag = b""
+        if not args.no_tags:
+            tag = build_tag(
+                title=title,
+                artist=tag_artist,
+                album=album,
+                album_artist=args.artist,
+                track=(i, len(entries)),
+                year=args.year,
+                genre=args.genre,
+            )
+
+        os.makedirs(args.outdir, exist_ok=True)
+
+        if args.mode == "reencode":
+            # ffmpeg writes the file itself, so tag it afterwards.
+            reencode(args.input, dst, start, end, sr, max(32, avg_kbps), strip_tags=True)
+            if tag:
+                with open(dst, "rb") as fh:
+                    body = fh.read()
+                with open(dst, "wb") as fh:
+                    fh.write(tag + body)
+            written += 1
+            continue
+
         try:
             blob, info = cut(data, frames, hdr, xing, start, end, keep_tags=False)
         except Mp3Error as exc:
@@ -159,23 +246,8 @@ def main(argv=None):
             exit_code = 1
             continue
 
-        if not args.no_tags:
-            blob = (
-                build_tag(
-                    title=title,
-                    artist=artist,
-                    album=album,
-                    album_artist=args.artist,
-                    track=(i, len(entries)),
-                    year=args.year,
-                    genre=args.genre,
-                )
-                + blob
-            )
-
-        os.makedirs(args.outdir, exist_ok=True)
         with open(dst, "wb") as fh:
-            fh.write(blob)
+            fh.write(tag + blob)
         written += 1
         if not args.quiet and info["warning"]:
             print("    warning: %s" % info["warning"])

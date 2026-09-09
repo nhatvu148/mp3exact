@@ -12,6 +12,7 @@ import sys
 from mp3frames import (
     DECODER_DELAY,
     Mp3Error,
+    average_bitrate,
     cut,
     fmt_samples,
     index_frames,
@@ -102,7 +103,9 @@ def main(argv=None):
             dst = os.path.join(args.outdir, "%s - %02d.mp3" % (stem, i))
 
         if args.mode == "reencode":
-            reencode(args.input, dst, s, min(e, music_len), sr, max(32, hdr["bitrate"]))
+            reencode(
+                args.input, dst, s, min(e, music_len), sr, max(32, average_bitrate(frames, hdr))
+            )
             if not args.quiet:
                 print(
                     "\ncut %d: %s -> %s  [re-encoded]"

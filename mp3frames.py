@@ -408,8 +408,8 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
         warning = (
             "dropped %d priming frame(s) to fit the 12-bit delay field; "
             "timing stays exact, but the first ~%d ms may decode with a "
-            "short bit-reservoir (use --mode reencode to avoid this)"
-            % (drop, drop * spf * 1000 // sr)
+            "short bit-reservoir; --mode reencode removes it, at the cost "
+            "of re-encoding the whole track" % (drop, drop * spf * 1000 // sr)
         )
     lead_silence = 0
     if delay < 0:
@@ -463,23 +463,31 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
 # ------------------------------------------------------------------ reencode
 
 
-def reencode(src, dst, start_sample, end_sample, sr, bitrate_kbps):
+def average_bitrate(frames, hdr):
+    """Mean kbps over the whole stream.
+
+    The header of frame 0 only describes frame 0, which in a VBR file says
+    little about the rest, so re-encoding targets this instead.
+    """
+    if not frames:
+        return 0
+    audio_bytes = sum(f.size for f in frames)
+    samples = len(frames) * hdr["spf"]
+    return int(round(audio_bytes * 8 * hdr["sample_rate"] / (samples * 1000.0)))
+
+
+def reencode(src, dst, start_sample, end_sample, sr, bitrate_kbps, strip_tags=False):
+    """Decode, trim to an exact sample range, and re-encode.
+
+    Exact in time for any player, including ones that ignore gapless metadata,
+    at the cost of one lossy generation. `strip_tags` leaves the file without
+    an ID3 header so a caller can prepend its own.
+    """
     import subprocess
 
     filt = "atrim=start_sample=%d:end_sample=%d,asetpts=N/SR/TB" % (start_sample, end_sample)
-    cmd = [
-        "ffmpeg",
-        "-v",
-        "error",
-        "-y",
-        "-i",
-        src,
-        "-af",
-        filt,
-        "-c:a",
-        "libmp3lame",
-        "-b:a",
-        "%dk" % bitrate_kbps,
-        dst,
-    ]
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", src, "-af", filt]
+    if strip_tags:
+        cmd += ["-map_metadata", "-1", "-id3v2_version", "0", "-write_id3v1", "0"]
+    cmd += ["-c:a", "libmp3lame", "-b:a", "%dk" % bitrate_kbps, dst]
     subprocess.run(cmd, check=True)
