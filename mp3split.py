@@ -145,7 +145,7 @@ def main(argv=None):
             )
     if problems and not args.sort:
         sys.exit(
-            "mp3split: tracklist is not in ascending time order:\n"
+            "mp3split: tracklist is not in strict ascending time order:\n"
             + "\n".join(problems)
             + "\nFix the timestamp(s), or pass --sort to order by time anyway."
         )
