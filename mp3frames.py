@@ -476,6 +476,17 @@ def average_bitrate(frames, hdr):
     return int(round(audio_bytes * 8 * hdr["sample_rate"] / (samples * 1000.0)))
 
 
+def describe_ffmpeg_error(exc):
+    """One sentence for a failed reencode(), whatever went wrong."""
+    import subprocess
+
+    if isinstance(exc, FileNotFoundError):
+        return "ffmpeg not found; --mode reencode needs it on PATH"
+    if isinstance(exc, subprocess.CalledProcessError):
+        return "ffmpeg exited %s (its own error is above)" % exc.returncode
+    return str(exc)
+
+
 def reencode(src, dst, start_sample, end_sample, sr, bitrate_kbps, strip_tags=False):
     """Decode, trim to an exact sample range, and re-encode.
 

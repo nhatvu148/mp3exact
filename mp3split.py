@@ -12,10 +12,19 @@ brackets around the timestamp are ignored.
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 from id3 import build_tag, safe_filename
-from mp3frames import Mp3Error, average_bitrate, cut, fmt_samples, index_frames, reencode
+from mp3frames import (
+    Mp3Error,
+    average_bitrate,
+    cut,
+    describe_ffmpeg_error,
+    fmt_samples,
+    index_frames,
+    reencode,
+)
 
 # hh:mm:ss(.mmm) or mm:ss(.mmm), not glued to other digits.
 TIMESTAMP = re.compile(r"(?<!\d)(?:(\d{1,3}):)?(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?(?!\d)")
@@ -230,12 +239,21 @@ def main(argv=None):
 
         if args.mode == "reencode":
             # ffmpeg writes the file itself, so tag it afterwards.
-            reencode(args.input, dst, start, end, sr, max(32, avg_kbps), strip_tags=True)
-            if tag:
-                with open(dst, "rb") as fh:
-                    body = fh.read()
-                with open(dst, "wb") as fh:
-                    fh.write(tag + body)
+            try:
+                reencode(args.input, dst, start, end, sr, max(32, avg_kbps), strip_tags=True)
+                if tag:
+                    with open(dst, "rb") as fh:
+                        body = fh.read()
+                    with open(dst, "wb") as fh:
+                        fh.write(tag + body)
+            except (OSError, subprocess.SubprocessError) as exc:
+                # Fail this track the way the lossless branch does: say which one,
+                # drop whatever was half-written, and keep going with the rest.
+                print("mp3split: track %d: %s" % (i, describe_ffmpeg_error(exc)), file=sys.stderr)
+                if os.path.exists(dst):
+                    os.remove(dst)
+                exit_code = 1
+                continue
             written += 1
             continue
 
