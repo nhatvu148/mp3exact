@@ -384,8 +384,13 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
     last_audio = min((raw_end - 1) // spf, len(frames) - 1)
 
     first = priming_start(frames, first_audio)
-    # One trailing frame so the final MDCT overlap is complete.
-    last = min(last_audio + 1, len(frames) - 1)
+    # No trailing frame. MP3 overlap-add runs forward - a frame's PCM is complete
+    # once that frame is decoded, with nothing owed to the next one - so an extra
+    # frame here buys nothing and costs a full frame of padding. That matters
+    # beyond size: padding above one frame is something no real encoder emits,
+    # and ffmpeg 6.1 (Ubuntu) does not fully apply it, so a very short cut came
+    # out 705 samples long there while being exact on ffmpeg 9.
+    last = last_audio
 
     n0 = raw_start - first * spf  # samples to drop at the front
     out_total = (last - first + 1) * spf
