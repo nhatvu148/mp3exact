@@ -114,4 +114,6 @@ CI runs `task lint` and `task test` on every push, and on pull requests from for
 
 The gapless delay field is 12 bits, so at most 4095 + 529 samples of priming can be hidden. At roughly 40 kbps and below, frames are small enough that satisfying the bit reservoir needs more lead than that. In those cases the tool drops the excess priming frames and warns.
 
+There is a second, narrower limit at the other extreme. A cut much shorter than one frame makes the gapless fields discard nearly the whole file — an 8-sample cut keeps 8 of 4608 decoded samples — and decoders disagree about honouring that. ffmpeg 9 returns the requested 8 samples; ffmpeg 6.1 returns 713. The header arithmetic is exact either way, and `test.sh` checks it directly on the header for that reason, but do not expect a sub-frame cut to play back identically everywhere. Anything from one frame upward (26 ms at 44.1 kHz) is fine on both.
+
 **Timing stays exact** when this happens — the length and both cut points are still sample-accurate. Only the first few tens of milliseconds decode from a short reservoir and may differ slightly from the source. Use `--mode reencode` if that matters. Above ~64 kbps this never triggers; every fixture at 96 kbps and up is bit-exact.

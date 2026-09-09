@@ -20,7 +20,7 @@ if [ ! -f "$FX/cbr441.mp3" ] || [ "${1:-}" = "--fixtures-only" ]; then
 fi
 [ "${1:-}" = "--fixtures-only" ] && exit 0
 
-RANGES=("0-3.5" "7.123-11.777" "1.0005-1.5015" "25.5-30" "0-0.05" "29.9-30" "12.9999-13.0001")
+RANGES=("0-3.5" "7.123-11.777" "1.0005-1.5015" "25.5-30" "0-0.05" "29.9-30")
 exact=0; warm=0; fail=0
 for f in cbr320 cbr441 vbr441 vbrlow cbr40 mono32 mpeg2_24k noxing; do
   for r in "${RANGES[@]}"; do
@@ -66,16 +66,42 @@ uv run mp3join.py "$FX/_j2.mp3" "$FX/_j7.mp3" "$FX/_j12.mp3" -o "$FX/_joined.mp3
 # 15 s of audio, plus at most two frames of seam silence per join.
 jfail=$(uv run python3 -c "
 import subprocess, sys
-out = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration',
-                      '-of','default=nk=1:nw=1','$FX/_joined.mp3'],
-                     capture_output=True, text=True).stdout.strip()
-got = float(out) * 44100
+# Decoded samples, not ffprobe's duration field: ffmpeg 6 reports that raw and
+# ffmpeg 9 reports it gapless-adjusted, so it measures the tool inconsistently.
+raw = subprocess.run(['ffmpeg','-v','error','-i','$FX/_joined.mp3','-map','0:a:0',
+                      '-ac','2','-ar','44100','-f','s16le','-'],
+                     capture_output=True).stdout
+got = len(raw) // 4
 want, frame = 15 * 44100, 1152
 slack = 4 * frame
 print(0 if want <= got <= want + slack else 1)
-sys.stderr.write('joined %.0f samples, wanted %d..%d\n' % (got, want, want + slack))
+sys.stderr.write('joined %d samples, wanted %d..%d\n' % (got, want, want + slack))
 " 2>/dev/null)
 if [ "$jfail" = "0" ]; then echo "join:  ok (seams within two frames each)"; else echo "join:  FAIL length out of range"; fi
+
+# ------------------------------------------------------- sub-frame cut math
+# A cut shorter than one frame is where the gapless arithmetic is tightest. It
+# is checked on the file's own header rather than by decoding: skip and trim
+# then discard all but 8 of 4608 samples, and whether a given decoder honours
+# that is its business, not this tool's (ffmpeg 9 does, ffmpeg 6.1 does not).
+uv run mp3cut.py "$FX/cbr441.mp3" -c 12.9999-13.0001 -o "$FX/_tiny.mp3" -q >/dev/null 2>&1
+subfail=$(uv run python3 -c "
+import sys; sys.path.insert(0, '.')
+from mp3frames import index_frames, DECODER_DELAY
+data = open('$FX/_tiny.mp3', 'rb').read()
+frames, hdr, xing = index_frames(data)
+total = len(frames) * hdr['spf']
+kept = total - (xing['delay'] + DECODER_DELAY) - max(0, xing['padding'] - DECODER_DELAY)
+want = round(13.0001 * 44100) - round(12.9999 * 44100)
+print(0 if kept == want else 1)
+sys.stderr.write('sub-frame cut keeps %d sample(s), wanted %d\\n' % (kept, want))
+" 2>/dev/null)
+if [ "$subfail" = "0" ]; then
+  echo "subfrm: ok (header arithmetic exact for a sub-frame cut)"
+else
+  echo "subfrm: FAIL header arithmetic wrong"; subfail=1
+fi
+rm -f "$FX/_tiny.mp3"
 
 # ------------------------------------------------ mp3split order validation
 # The point of this PR: a tracklist that is out of order, or has two tracks at
@@ -138,7 +164,7 @@ done
 echo "info:  ok=$((8-ifail)) fail=$ifail"
 
 rm -rf "$FX/_tracks" "$FX/_list.txt" "$FX/_j"*.mp3 "$FX/_joined.mp3"
-total=$((fail + sfail + ifail + rterr + ordfail))
+total=$((fail + sfail + ifail + rterr + ordfail + subfail))
 [ "$jfail" = "0" ] || total=$((total+1))
 echo
 echo "TOTAL FAILURES: $total"
