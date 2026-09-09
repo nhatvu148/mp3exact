@@ -61,9 +61,11 @@ Paste the tracklist out of a YouTube description into a file and point at it:
 task split -- mix.mp3 -t list.txt -d tracks/ --album "Midnight Memories"
 ```
 
-Lines are matched on whatever timestamp they contain, so the usual mess all parses: `00:00 Artist - Title`, `1. 03:47.512 Title`, `[08:11] Artist — Title`, `0:15:02 Title`. Track numbering, bullets and brackets are stripped, lines without a timestamp are ignored, and `Artist - Title` is split on `-`, `–`, `—` or `~`. Each track runs to the next one's start, the last runs to the end of the mix.
+`example-tracklist.txt` in this repo shows every accepted shape. Lines are matched on whatever timestamp they contain, so the usual mess all parses: `00:00 Artist - Title`, `1. 03:47.512 Title`, `[08:11] Artist — Title`, `0:15:02 Title`. Track numbering, bullets and brackets are stripped, lines without a timestamp are ignored, and `Artist - Title` is split on `-`, `–`, `—` or `~`. Each track runs to the next one's start, the last runs to the end of the mix.
 
-Every track gets its own ID3v2.3 tag — title, artist, album, album artist, track number, optional year and genre — written in UTF-16 so CJK and Vietnamese titles survive. Filenames are sanitized for macOS, Linux and Windows. Use `-n` to preview the split before writing anything, and `-t -` to read the tracklist from standard input.
+Every track gets its own ID3v2.3 tag — title, artist, album, album artist, track number, optional year and genre — written in UTF-16 so CJK and Vietnamese titles survive. Filenames are sanitized for macOS, Linux and Windows. A tracklist is authored in play order, so a timestamp that goes backwards is treated as a typo and reported with the offending line number and title, rather than silently sorted into a plausible-looking but wrong split; pass `--sort` if your list really is unordered. Lines with no timestamp are listed as skipped, so a mistyped one cannot vanish unnoticed.
+
+Use `-n` to preview the split before writing anything, and `-t -` to read the tracklist from standard input.
 
 ## mp3join — put them back together
 

@@ -77,6 +77,57 @@ sys.stderr.write('joined %.0f samples, wanted %d..%d\n' % (got, want, want + sla
 " 2>/dev/null)
 if [ "$jfail" = "0" ]; then echo "join:  ok (seams within two frames each)"; else echo "join:  FAIL length out of range"; fi
 
+# ------------------------------------------------ mp3split order validation
+# The point of this PR: a tracklist that is out of order, or has two tracks at
+# the same timestamp, must be refused rather than silently sorted into a
+# plausible-but-wrong split - and --sort must still be able to accept it.
+printf '00:00 One\n0:19 Three\n0:08 Two\n' > "$FX/_bad.txt"
+printf '00:00 One\n0:08 Two\n0:08 Dup\n'   > "$FX/_tie.txt"
+ordfail=0
+rm -rf "$FX/_ord"
+if uv run mp3split.py "$FX/cbr441.mp3" -t "$FX/_bad.txt" -d "$FX/_ord" -q >/dev/null 2>&1; then
+  echo "ORDER: out-of-order tracklist was accepted"; ordfail=$((ordfail+1))
+fi
+msg=$(uv run mp3split.py "$FX/cbr441.mp3" -t "$FX/_bad.txt" -d "$FX/_ord" 2>&1 >/dev/null)
+case "$msg" in
+  *"line 3"*) : ;;
+  *) echo "ORDER: error did not name the offending line: $msg"; ordfail=$((ordfail+1)) ;;
+esac
+if uv run mp3split.py "$FX/cbr441.mp3" -t "$FX/_tie.txt" -d "$FX/_ord" -q >/dev/null 2>&1; then
+  echo "ORDER: tied timestamps were accepted"; ordfail=$((ordfail+1))
+fi
+rm -rf "$FX/_ord"
+if uv run mp3split.py "$FX/cbr441.mp3" -t "$FX/_bad.txt" -d "$FX/_ord" --sort -q >/dev/null 2>&1; then
+  n=$(ls "$FX/_ord" 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" = "3" ] || { echo "ORDER: --sort wrote $n file(s), wanted 3"; ordfail=$((ordfail+1)); }
+else
+  echo "ORDER: --sort refused a merely unordered tracklist"; ordfail=$((ordfail+1))
+fi
+if [ "$ordfail" = "0" ]; then
+  echo "order: ok (out-of-order and ties refused, --sort accepts)"
+else
+  echo "order: FAIL ($ordfail)"
+fi
+rm -rf "$FX/_ord" "$FX/_bad.txt" "$FX/_tie.txt"
+
+# ------------------------------------------------- mp3split reencode failure
+# A broken ffmpeg must fail the affected track and continue, not abort the run
+# or leave a half-written file behind.
+FAKE="$FX/_fakebin"; mkdir -p "$FAKE"
+printf '#!/bin/sh\nexit 1\n' > "$FAKE/ffmpeg"; chmod +x "$FAKE/ffmpeg"
+printf '00:00 One\n0:08 Two\n0:19 Three\n' > "$FX/_t3.txt"
+rm -rf "$FX/_ft"
+PATH="$FAKE:$PATH" uv run mp3split.py "$FX/cbr441.mp3" -t "$FX/_t3.txt" -d "$FX/_ft" \
+  --mode reencode -q >/dev/null 2>&1
+rc=$?
+left=$(ls "$FX/_ft" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$rc" = "1" ] && [ "$left" = "0" ]; then
+  echo "rterr: ok (broken ffmpeg reported, no partial files)"; rterr=0
+else
+  echo "rterr: FAIL exit=$rc partial_files=$left"; rterr=1
+fi
+rm -rf "$FAKE" "$FX/_t3.txt" "$FX/_ft"
+
 # ---------------------------------------------------------------- mp3info
 ifail=0
 for f in cbr320 cbr441 vbr441 vbrlow cbr40 mono32 mpeg2_24k noxing; do
@@ -87,7 +138,7 @@ done
 echo "info:  ok=$((8-ifail)) fail=$ifail"
 
 rm -rf "$FX/_tracks" "$FX/_list.txt" "$FX/_j"*.mp3 "$FX/_joined.mp3"
-total=$((fail + sfail + ifail))
+total=$((fail + sfail + ifail + rterr + ordfail))
 [ "$jfail" = "0" ] || total=$((total+1))
 echo
 echo "TOTAL FAILURES: $total"

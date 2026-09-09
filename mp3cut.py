@@ -7,12 +7,15 @@ mp3cut mix.mp3 -c 0:00-3:47.512 -c 3:47.512-8:11.003 -d tracks/
 
 import argparse
 import os
+import subprocess
 import sys
 
 from mp3frames import (
     DECODER_DELAY,
     Mp3Error,
+    average_bitrate,
     cut,
+    describe_ffmpeg_error,
     fmt_samples,
     index_frames,
     parse_time,
@@ -93,6 +96,8 @@ def main(argv=None):
         sys.exit("mp3cut: -o works with a single --cut; use --outdir instead")
 
     stem = os.path.splitext(os.path.basename(args.input))[0]
+    # frames and hdr do not change between cuts, so derive this once.
+    avg_kbps = average_bitrate(frames, hdr)
     exit_code = 0
     for i, (s, e) in enumerate(ranges, 1):
         if args.output:
@@ -102,7 +107,14 @@ def main(argv=None):
             dst = os.path.join(args.outdir, "%s - %02d.mp3" % (stem, i))
 
         if args.mode == "reencode":
-            reencode(args.input, dst, s, min(e, music_len), sr, max(32, hdr["bitrate"]))
+            try:
+                reencode(args.input, dst, s, min(e, music_len), sr, max(32, avg_kbps))
+            except (OSError, subprocess.SubprocessError) as exc:
+                print("mp3cut: cut %d: %s" % (i, describe_ffmpeg_error(exc)), file=sys.stderr)
+                if os.path.exists(dst):
+                    os.remove(dst)
+                exit_code = 1
+                continue
             if not args.quiet:
                 print(
                     "\ncut %d: %s -> %s  [re-encoded]"

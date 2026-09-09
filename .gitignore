@@ -5,3 +5,7 @@ __pycache__/
 
 # never commit audio
 *.mp3
+tracks/
+
+# personal working tracklists (example-tracklist.txt is the tracked one)
+/list.txt

@@ -1,0 +1,13 @@
+# Paste a YouTube description here. Lines without a timestamp are ignored,
+# so headers and footers can stay. Every supported shape is shown below.
+
+Tracklist:
+
+00:00 Aurora Fields - Midnight Drive
+1. 03:47.512 Kaito Mori — Night Memory
+[08:11] Someone Else – Deep Night
+4) 12:30 A Title With No Artist
+0:15:02 Another Artist - Late Reply
+20:00 Some Band - Post-Rock Anthem
+
+Follow me on socials
