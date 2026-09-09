@@ -1,0 +1,25 @@
+[project]
+name = "mp3cut"
+version = "0.1.0"
+description = "Sample-exact MP3 cutter — cuts on frame boundaries and hides the excess in a rewritten gapless header, so the output does not drift"
+readme = "README.md"
+requires-python = ">=3.10"
+# The cutter is deliberately dependency-free: it parses MPEG frames directly.
+dependencies = []
+
+[project.scripts]
+mp3cut = "mp3cut:main"
+
+[dependency-groups]
+# Only the verifier needs numpy, for the FFT cross-correlation.
+dev = ["numpy>=1.24"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["mp3cut.py"]
+
+[tool.ruff]
+line-length = 100

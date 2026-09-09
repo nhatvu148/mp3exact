@@ -1,3 +1,7 @@
+.venv/
 fixtures/
 __pycache__/
 *.pyc
+
+# never commit audio
+*.mp3

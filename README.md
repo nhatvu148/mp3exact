@@ -20,17 +20,29 @@ It then cuts on the frame boundaries *outside* the requested range and writes a 
 
 It also carries the **bit reservoir**. MP3 frames can store their main data in earlier frames, so a frame at a cut point may reference bytes that the cut would remove. The tool reads `main_data_begin` from the side info and includes exactly the earlier frames needed — plus one more so the MDCT overlap into the first kept frame is correct — then hides those priming frames with the same delay field.
 
+## Setup
+
+Needs [uv](https://docs.astral.sh/uv/) and [Task](https://taskfile.dev); ffmpeg is needed only for verifying and for `--mode reencode`. The cutter itself is pure standard library, so `python3 mp3cut.py ...` also works with no environment at all.
+
+```
+task sync            # create the uv environment
+task --list          # see everything
+task install         # optional: install `mp3cut` as a global CLI
+```
+
 ## Usage
 
 ```
-python3 mp3cut.py input.mp3 -c 1:20-2:45 -o out.mp3
+task cut -- input.mp3 -c 1:20-2:45 -o out.mp3
 ```
 
 Split a long mix into tracks in one pass:
 
 ```
-python3 mp3cut.py mix.mp3 -c 0:00-3:47.512 -c 3:47.512-8:11.003 -d tracks/
+task cut -- mix.mp3 -c 0:00-3:47.512 -c 3:47.512-8:11.003 -d tracks/
 ```
+
+Everything after `--` goes straight to the tool, so `uv run mp3cut.py <args>` is equivalent, as is `mp3cut <args>` once installed.
 
 Timestamps accept `83`, `83.5`, `1:23.5`, `01:02:03.456`, or `#<sample number>` for exact sample positions.
 
@@ -43,12 +55,12 @@ Timestamps accept `83`, `83.5`, `1:23.5`, `01:02:03.456`, or `#<sample number>` 
 `verify.py` measures the error rather than asserting correctness:
 
 ```
-uv run verify.py source.mp3 cut.mp3 --start 1:20 --end 2:45
+task verify -- source.mp3 cut.mp3 --start 1:20 --end 2:45
 ```
 
 Ground truth is the source decoded from sample 0 and trimmed with ffmpeg's `atrim`. That detail matters: ffmpeg's own `-ss` seek begins decoding with a cold bit reservoir, so seek-based extraction is itself slightly wrong near the cut point and makes a poor reference. Measured against `-ss`, a correct cut looks like it has a 0.13% error; measured against a warm decode, it is bit-identical.
 
-`./test.sh` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut. Current result: 46 bit-exact, 10 exact-in-time, 0 failures across 56 cases.
+`task test` generates fixtures across CBR/VBR, 320 to 32 kbps, mono, MPEG2, and a file with no Xing header, then runs a matrix of cuts including file start, file end, sub-frame offsets and a 9-sample cut. Current result: 46 bit-exact, 10 exact-in-time, 0 failures across 56 cases.
 
 ## Known limitation
 

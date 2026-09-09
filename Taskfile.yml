@@ -1,0 +1,50 @@
+# mp3cut task runner — https://taskfile.dev  (brew install go-task/tap/go-task)
+# Run `task` (or `task --list`) to see everything.
+version: '3'
+
+vars:
+  FX: fixtures
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds: [task --list]
+    silent: true
+
+  sync:
+    desc: Create/refresh the uv environment
+    cmds: [uv sync]
+
+  cut:
+    desc: 'Cut an MP3 — task cut -- in.mp3 -c 1:20-2:45 -o out.mp3'
+    cmds: ['uv run mp3cut.py {{.CLI_ARGS}}']
+
+  verify:
+    desc: 'Measure drift — task verify -- src.mp3 cut.mp3 --start 1:20 --end 2:45'
+    cmds: ['uv run verify.py {{.CLI_ARGS}}']
+
+  fixtures:
+    desc: Generate the test MP3s (CBR/VBR, 320-32 kbps, mono, MPEG2, no-Xing)
+    cmds: ['FX={{.FX}} ./test.sh --fixtures-only']
+    status:
+      - test -f {{.FX}}/cbr441.mp3
+
+  test:
+    desc: Run the full cut/verify matrix (56 cases)
+    deps: [fixtures]
+    cmds: ['FX={{.FX}} ./test.sh']
+
+  check:
+    desc: Lint and format the Python
+    cmds:
+      - uvx ruff check --fix
+      - uvx ruff format
+
+  install:
+    desc: Install `mp3cut` as a global CLI tool
+    cmds: [uv tool install --force .]
+
+  clean:
+    desc: Remove the venv and generated fixtures
+    cmds:
+      - rm -rf .venv {{.FX}}

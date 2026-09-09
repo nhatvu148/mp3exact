@@ -7,7 +7,7 @@ mkdir -p "$FX"
 
 SIG="aevalsrc='0.35*sin(2*PI*(180+140*sin(2*PI*0.31*t))*t)+0.25*sin(2*PI*(900+700*sin(2*PI*0.13*t))*t)+0.12*random(0)|0.35*sin(2*PI*(210+120*sin(2*PI*0.23*t))*t)+0.12*random(1):s=%d:d=30'"
 
-if [ ! -f "$FX/cbr441.mp3" ]; then
+if [ ! -f "$FX/cbr441.mp3" ] || [ "${1:-}" = "--fixtures-only" ]; then
   echo "generating fixtures in $FX ..."
   ffmpeg -v error -y -f lavfi -i "$(printf "$SIG" 44100)" -c:a libmp3lame -b:a 320k "$FX/cbr320.mp3"
   ffmpeg -v error -y -f lavfi -i "$(printf "$SIG" 44100)" -c:a libmp3lame -b:a 128k "$FX/cbr441.mp3"
@@ -18,13 +18,14 @@ if [ ! -f "$FX/cbr441.mp3" ]; then
   ffmpeg -v error -y -f lavfi -i "$(printf "$SIG" 24000)" -c:a libmp3lame -b:a  32k "$FX/mpeg2_24k.mp3"
   ffmpeg -v error -y -f lavfi -i "$(printf "$SIG" 44100)" -c:a libmp3lame -b:a 128k -write_xing 0 "$FX/noxing.mp3"
 fi
+[ "${1:-}" = "--fixtures-only" ] && exit 0
 
 RANGES=("0-3.5" "7.123-11.777" "1.0005-1.5015" "25.5-30" "0-0.05" "29.9-30" "12.9999-13.0001")
 exact=0; warm=0; fail=0
 for f in cbr320 cbr441 vbr441 vbrlow cbr40 mono32 mpeg2_24k noxing; do
   for r in "${RANGES[@]}"; do
     s="${r%-*}"; e="${r#*-}"
-    if ! python3 mp3cut.py "$FX/$f.mp3" -c "$r" -o "$FX/_out.mp3" -q >/dev/null 2>&1; then
+    if ! uv run mp3cut.py "$FX/$f.mp3" -c "$r" -o "$FX/_out.mp3" -q >/dev/null 2>&1; then
       printf "CUTFAIL %-11s %s\n" "$f" "$r"; fail=$((fail+1)); continue
     fi
     res=$(uv run verify.py "$FX/$f.mp3" "$FX/_out.mp3" --start "$s" --end "$e" 2>/dev/null | tail -1)

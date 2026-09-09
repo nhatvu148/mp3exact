@@ -24,13 +24,13 @@ MPEG1, MPEG2, MPEG25 = 3, 2, 0
 LAYER3 = 1
 
 SAMPLE_RATES = {
-    MPEG1:  (44100, 48000, 32000),
-    MPEG2:  (22050, 24000, 16000),
-    MPEG25: (11025, 12000,  8000),
+    MPEG1: (44100, 48000, 32000),
+    MPEG2: (22050, 24000, 16000),
+    MPEG25: (11025, 12000, 8000),
 }
 BITRATES = {
-    MPEG1:  (None, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, None),
-    MPEG2:  (None,  8, 16, 24, 32, 40, 48, 56,  64,  80,  96, 112, 128, 144, 160, None),
+    MPEG1: (None, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, None),
+    MPEG2: (None, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, None),
 }
 BITRATES[MPEG25] = BITRATES[MPEG2]
 
@@ -51,6 +51,7 @@ class Mp3Error(Exception):
 
 class Frame:
     """One MPEG audio frame located in the source file."""
+
     __slots__ = ("off", "size", "main_begin", "main_size")
 
     def __init__(self, off, size, main_begin, main_size):
@@ -76,16 +77,16 @@ def parse_header(buf, off):
         return None
 
     version = (b1 >> 3) & 0x03
-    if version == 1:                       # reserved
+    if version == 1:  # reserved
         return None
     layer = (b1 >> 1) & 0x03
-    if layer != LAYER3:                    # we only handle Layer III
+    if layer != LAYER3:  # we only handle Layer III
         return None
     crc = not (b1 & 0x01)
 
     br_idx = (b2 >> 4) & 0x0F
     sr_idx = (b2 >> 2) & 0x03
-    if br_idx in (0, 15) or sr_idx == 3:   # free-format / reserved
+    if br_idx in (0, 15) or sr_idx == 3:  # free-format / reserved
         return None
 
     bitrate = BITRATES[version][br_idx]
@@ -99,9 +100,16 @@ def parse_header(buf, off):
         return None
 
     return {
-        "version": version, "crc": crc, "br_idx": br_idx, "sr_idx": sr_idx,
-        "bitrate": bitrate, "sample_rate": sample_rate, "padding": padding,
-        "channel_mode": channel_mode, "spf": spf, "size": size,
+        "version": version,
+        "crc": crc,
+        "br_idx": br_idx,
+        "sr_idx": sr_idx,
+        "bitrate": bitrate,
+        "sample_rate": sample_rate,
+        "padding": padding,
+        "channel_mode": channel_mode,
+        "spf": spf,
+        "size": size,
         "side_len": side_info_len(version, channel_mode),
         "b3": b3,
     }
@@ -116,41 +124,42 @@ def id3v2_size(buf):
     for b in buf[6:10]:
         size = (size << 7) | (b & 0x7F)
     total = 10 + size
-    if flags & 0x10:      # footer present
+    if flags & 0x10:  # footer present
         total += 10
     return total
 
 
 # ------------------------------------------------------------- Xing/LAME tag
 
+
 def read_xing(buf, off, hdr):
     """Parse a Xing/Info header frame at `off`. Returns dict or None."""
     tag_off = off + 4 + (2 if hdr["crc"] else 0) + hdr["side_len"]
     if tag_off + 8 > len(buf):
         return None
-    magic = buf[tag_off:tag_off + 4]
+    magic = buf[tag_off : tag_off + 4]
     if magic not in (b"Xing", b"Info"):
         # Some encoders write a VBRI header instead (Fraunhofer).
-        if buf[off + 4 + 32:off + 4 + 36] == b"VBRI":
+        if buf[off + 4 + 32 : off + 4 + 36] == b"VBRI":
             return {"delay": 0, "padding": 0, "kind": b"VBRI"}
         return None
 
     p = tag_off + 4
-    flags = int.from_bytes(buf[p:p + 4], "big")
+    flags = int.from_bytes(buf[p : p + 4], "big")
     p += 4
     if flags & 0x01:
-        p += 4          # frame count
+        p += 4  # frame count
     if flags & 0x02:
-        p += 4          # byte count
+        p += 4  # byte count
     if flags & 0x04:
-        p += 100        # TOC
+        p += 100  # TOC
     if flags & 0x08:
-        p += 4          # quality
+        p += 4  # quality
 
     delay = padding = 0
-    version_str = buf[p:p + 9]
+    version_str = buf[p : p + 9]
     if version_str[:4] in (b"LAME", b"Lavc", b"Lavf") and p + 24 <= len(buf):
-        d = buf[p + 21:p + 24]
+        d = buf[p + 21 : p + 24]
         delay = (d[0] << 4) | (d[1] >> 4)
         padding = ((d[1] & 0x0F) << 8) | d[2]
 
@@ -161,7 +170,7 @@ def build_xing_frame(hdr, frame_count, byte_count, toc, delay, padding):
     """Create a fresh Xing header frame carrying our gapless values."""
     version = hdr["version"]
     side_len = hdr["side_len"]
-    tag_len = 4 + 4 + 4 + 4 + 100 + 36            # magic+flags+frames+bytes+TOC+LAME
+    tag_len = 4 + 4 + 4 + 4 + 100 + 36  # magic+flags+frames+bytes+TOC+LAME
     needed = 4 + side_len + tag_len
 
     # Smallest bitrate whose frame is large enough to hold the tag.
@@ -177,27 +186,27 @@ def build_xing_frame(hdr, frame_count, byte_count, toc, delay, padding):
     if br_idx is None:
         raise Mp3Error("cannot fit a Xing header at this sample rate")
 
-    b1 = 0xE0 | (version << 3) | (LAYER3 << 1) | 0x01     # no CRC
+    b1 = 0xE0 | (version << 3) | (LAYER3 << 1) | 0x01  # no CRC
     b2 = (br_idx << 4) | (hdr["sr_idx"] << 2)
     out = bytearray(frame_size)
     out[0] = 0xFF
     out[1] = b1
     out[2] = b2
-    out[3] = hdr["b3"]                                    # keep channel mode
+    out[3] = hdr["b3"]  # keep channel mode
 
     p = 4 + side_len
-    out[p:p + 4] = b"Xing"
-    out[p + 4:p + 8] = (0x0007).to_bytes(4, "big")        # frames | bytes | TOC
-    out[p + 8:p + 12] = frame_count.to_bytes(4, "big")
-    out[p + 12:p + 16] = byte_count.to_bytes(4, "big")
-    out[p + 16:p + 116] = bytes(toc)
+    out[p : p + 4] = b"Xing"
+    out[p + 4 : p + 8] = (0x0007).to_bytes(4, "big")  # frames | bytes | TOC
+    out[p + 8 : p + 12] = frame_count.to_bytes(4, "big")
+    out[p + 12 : p + 16] = byte_count.to_bytes(4, "big")
+    out[p + 16 : p + 116] = bytes(toc)
 
     lame = bytearray(36)
     lame[0:9] = b"LAME3.100"
     lame[21] = (delay >> 4) & 0xFF
     lame[22] = ((delay & 0x0F) << 4) | ((padding >> 8) & 0x0F)
     lame[23] = padding & 0xFF
-    out[p + 116:p + 152] = lame
+    out[p + 116 : p + 152] = lame
     return bytes(out)
 
 
@@ -235,6 +244,7 @@ def build_toc(frames, first, last, total_bytes):
 
 # --------------------------------------------------------------- frame index
 
+
 def index_frames(data):
     """Scan the whole file and return (frames, header, xing)."""
     pos = id3v2_size(data)
@@ -253,7 +263,7 @@ def index_frames(data):
 
     xing = read_xing(data, pos, hdr)
     if xing:
-        pos += hdr["size"]          # the Xing frame is metadata, not audio
+        pos += hdr["size"]  # the Xing frame is metadata, not audio
         h2 = parse_header(data, pos)
         if h2:
             hdr = h2
@@ -274,9 +284,9 @@ def index_frames(data):
         hlen = 4 + (2 if h["crc"] else 0)
         si = pos + hlen
         if h["version"] == MPEG1:
-            main_begin = (data[si] << 1) | (data[si + 1] >> 7)   # 9 bits
+            main_begin = (data[si] << 1) | (data[si + 1] >> 7)  # 9 bits
         else:
-            main_begin = data[si]                                # 8 bits
+            main_begin = data[si]  # 8 bits
         main_size = h["size"] - hlen - h["side_len"]
         frames.append(Frame(pos, h["size"], main_begin, main_size))
         pos += h["size"]
@@ -311,6 +321,7 @@ def priming_start(frames, idx):
 
 # ----------------------------------------------------------------- time input
 
+
 def parse_time(text, sample_rate):
     """Accept 83, 83.5, 1:23.5, 01:02:03.456, or #<samples>."""
     text = text.strip()
@@ -336,6 +347,7 @@ def fmt_samples(s, sr):
 
 # ---------------------------------------------------------------------- cut
 
+
 def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=False):
     """Return the bytes of a new MP3 containing exactly [start, end) samples."""
     spf = hdr["spf"]
@@ -352,8 +364,7 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
     if end_sample <= start_sample:
         raise Mp3Error("end must be after start")
     if start_sample >= music_len:
-        raise Mp3Error("start is past the end of the audio (%s)"
-                       % fmt_samples(music_len, sr))
+        raise Mp3Error("start is past the end of the audio (%s)" % fmt_samples(music_len, sr))
     end_sample = min(end_sample, music_len)
 
     raw_start = start_sample + src_delay
@@ -366,9 +377,9 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
     # One trailing frame so the final MDCT overlap is complete.
     last = min(last_audio + 1, len(frames) - 1)
 
-    n0 = raw_start - first * spf                    # samples to drop at the front
+    n0 = raw_start - first * spf  # samples to drop at the front
     out_total = (last - first + 1) * spf
-    n1 = raw_end - first * spf                      # last sample we keep
+    n1 = raw_end - first * spf  # last sample we keep
 
     delay = n0 - DECODER_DELAY
     padding = (out_total - n1) + DECODER_DELAY
@@ -384,10 +395,12 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
         n1 = raw_end - first * spf
         delay = n0 - DECODER_DELAY
         padding = (out_total - n1) + DECODER_DELAY
-        warning = ("dropped %d priming frame(s) to fit the 12-bit delay field; "
-                   "timing stays exact, but the first ~%d ms may decode with a "
-                   "short bit-reservoir (use --mode reencode to avoid this)"
-                   % (drop, drop * spf * 1000 // sr))
+        warning = (
+            "dropped %d priming frame(s) to fit the 12-bit delay field; "
+            "timing stays exact, but the first ~%d ms may decode with a "
+            "short bit-reservoir (use --mode reencode to avoid this)"
+            % (drop, drop * spf * 1000 // sr)
+        )
     lead_silence = 0
     if delay < 0:
         # Decoders always skip (delay + 529), so we need at least 529 samples
@@ -404,18 +417,19 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
         padding = (out_total - n1) + DECODER_DELAY
     padding = max(0, min(padding, MAX_GAPLESS))
 
-    payload = data[frames[first].off:frames[last].off + frames[last].size]
+    payload = data[frames[first].off : frames[last].off + frames[last].size]
     if lead_silence:
         payload = build_silent_frame(hdr) + payload
     frame_count = last - first + 1 + lead_silence
     toc = build_toc(frames, first, last, len(payload))
-    header_frame = build_xing_frame(hdr, frame_count, len(payload), toc,
-                                    delay, padding)
+    header_frame = build_xing_frame(hdr, frame_count, len(payload), toc, delay, padding)
     # Now that the header frame's size is known, correct the byte count.
-    tag_p = 4 + hdr["side_len"] + 12          # magic(4) + flags(4) + frames(4)
-    header_frame = (header_frame[:tag_p]
-                    + (len(payload) + len(header_frame)).to_bytes(4, "big")
-                    + header_frame[tag_p + 4:])
+    tag_p = 4 + hdr["side_len"] + 12  # magic(4) + flags(4) + frames(4)
+    header_frame = (
+        header_frame[:tag_p]
+        + (len(payload) + len(header_frame)).to_bytes(4, "big")
+        + header_frame[tag_p + 4 :]
+    )
 
     out = bytearray()
     if keep_tags:
@@ -438,30 +452,54 @@ def cut(data, frames, hdr, xing, start_sample, end_sample, keep_tags, quiet=Fals
 
 # ------------------------------------------------------------------ reencode
 
+
 def reencode(src, dst, start_sample, end_sample, sr, bitrate_kbps):
     import subprocess
-    filt = "atrim=start_sample=%d:end_sample=%d,asetpts=N/SR/TB" % (
-        start_sample, end_sample)
-    cmd = ["ffmpeg", "-v", "error", "-y", "-i", src, "-af", filt,
-           "-c:a", "libmp3lame", "-b:a", "%dk" % bitrate_kbps, dst]
+
+    filt = "atrim=start_sample=%d:end_sample=%d,asetpts=N/SR/TB" % (start_sample, end_sample)
+    cmd = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-y",
+        "-i",
+        src,
+        "-af",
+        filt,
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "%dk" % bitrate_kbps,
+        dst,
+    ]
     subprocess.run(cmd, check=True)
 
 
 # ---------------------------------------------------------------------- main
 
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        prog="mp3cut",
-        description="Cut MP3 files at sample-exact timestamps without re-encoding.")
+        prog="mp3cut", description="Cut MP3 files at sample-exact timestamps without re-encoding."
+    )
     ap.add_argument("input")
-    ap.add_argument("-c", "--cut", action="append", required=True, metavar="START-END",
-                    help="range to keep, e.g. 1:20-2:45 or 0:00-3:12.500 "
-                         "(repeat for multiple cuts)")
+    ap.add_argument(
+        "-c",
+        "--cut",
+        action="append",
+        required=True,
+        metavar="START-END",
+        help="range to keep, e.g. 1:20-2:45 or 0:00-3:12.500 (repeat for multiple cuts)",
+    )
     ap.add_argument("-o", "--output", help="output file (single cut only)")
     ap.add_argument("-d", "--outdir", default=".", help="output directory for multiple cuts")
-    ap.add_argument("--mode", choices=("lossless", "reencode"), default="lossless",
-                    help="lossless keeps the original frames (default); "
-                         "reencode is exact for players that ignore gapless tags")
+    ap.add_argument(
+        "--mode",
+        choices=("lossless", "reencode"),
+        default="lossless",
+        help="lossless keeps the original frames (default); "
+        "reencode is exact for players that ignore gapless tags",
+    )
     ap.add_argument("--no-tags", action="store_true", help="do not copy the ID3v2 tag")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args(argv)
@@ -476,18 +514,27 @@ def main(argv=None):
 
     sr = hdr["sample_rate"]
     spf = hdr["spf"]
-    music_len = (len(frames) * spf - (xing["delay"] if xing else 0)
-                 - (xing["padding"] if xing else 0))
+    music_len = (
+        len(frames) * spf - (xing["delay"] if xing else 0) - (xing["padding"] if xing else 0)
+    )
 
     if not args.quiet:
         vbr = "VBR" if xing and xing.get("kind") == b"Xing" else "CBR/unknown"
         print("input : %s" % os.path.basename(args.input))
-        print("        %d Hz, %s, %d frames, %s, duration %s"
-              % (sr, ("mono" if hdr["channel_mode"] == 3 else "stereo"),
-                 len(frames), vbr, fmt_samples(music_len, sr)))
-        print("        encoder delay %d + %d, padding %d"
-              % (xing["delay"] if xing else 0, DECODER_DELAY,
-                 xing["padding"] if xing else 0))
+        print(
+            "        %d Hz, %s, %d frames, %s, duration %s"
+            % (
+                sr,
+                ("mono" if hdr["channel_mode"] == 3 else "stereo"),
+                len(frames),
+                vbr,
+                fmt_samples(music_len, sr),
+            )
+        )
+        print(
+            "        encoder delay %d + %d, padding %d"
+            % (xing["delay"] if xing else 0, DECODER_DELAY, xing["padding"] if xing else 0)
+        )
 
     ranges = []
     for spec in args.cut:
@@ -512,11 +559,12 @@ def main(argv=None):
             dst = os.path.join(args.outdir, "%s - %02d.mp3" % (stem, i))
 
         if args.mode == "reencode":
-            reencode(args.input, dst, s, min(e, music_len), sr,
-                     max(32, hdr["bitrate"]))
+            reencode(args.input, dst, s, min(e, music_len), sr, max(32, hdr["bitrate"]))
             if not args.quiet:
-                print("\ncut %d: %s -> %s  [re-encoded]"
-                      % (i, fmt_samples(s, sr), fmt_samples(min(e, music_len), sr)))
+                print(
+                    "\ncut %d: %s -> %s  [re-encoded]"
+                    % (i, fmt_samples(s, sr), fmt_samples(min(e, music_len), sr))
+                )
                 print("        %s" % dst)
             continue
 
@@ -530,12 +578,19 @@ def main(argv=None):
             fh.write(blob)
 
         if not args.quiet:
-            print("\ncut %d: %s -> %s  (%s)"
-                  % (i, fmt_samples(s, sr), fmt_samples(min(e, music_len), sr),
-                     fmt_samples(info["out_samples"], sr)))
-            print("        %s  (%d frames, %d priming, delay %d, padding %d)"
-                  % (dst, info["frames"], info["priming_frames"],
-                     info["delay"], info["padding"]))
+            print(
+                "\ncut %d: %s -> %s  (%s)"
+                % (
+                    i,
+                    fmt_samples(s, sr),
+                    fmt_samples(min(e, music_len), sr),
+                    fmt_samples(info["out_samples"], sr),
+                )
+            )
+            print(
+                "        %s  (%d frames, %d priming, delay %d, padding %d)"
+                % (dst, info["frames"], info["priming_frames"], info["delay"], info["padding"])
+            )
             if info["warning"]:
                 print("        warning: %s" % info["warning"])
     return exit_code
